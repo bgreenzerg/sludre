@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from unittest.mock import patch
 
@@ -79,8 +80,11 @@ class LlmRefinerTests(unittest.TestCase):
         cfg.llm_model = "gpt-test"
         refiner = LlmRefiner()
 
-        with self.assertRaises(LlmRefineError):
-            refiner.refine("hej", cfg, preferred_terms=[])
+        with patch.dict(os.environ, {"LLM_API_KEY": ""}, clear=False):
+            with patch("src.core.llm_refiner.EnvSecretsStore.default") as secrets_default:
+                secrets_default.return_value.get_secret.return_value = ""
+                with self.assertRaises(LlmRefineError):
+                    refiner.refine("hej", cfg, preferred_terms=[])
 
 
 if __name__ == "__main__":

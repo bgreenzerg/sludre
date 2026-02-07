@@ -40,6 +40,7 @@ class ConfigStoreTests(unittest.TestCase):
             cfg.language = "da"
             cfg.manual_model_path = r"C:\models\hviske-v2"
             cfg.hf_token = "secret-token"
+            cfg.llm_api_key = "llm-secret"
             cfg.llm_prompt_presets = [
                 {"name": "Standard", "prompt": "default"},
                 {"name": "Formel", "prompt": "rewrite formally"},
@@ -48,13 +49,17 @@ class ConfigStoreTests(unittest.TestCase):
             store.save(cfg)
 
             loaded = store.load()
+            raw = config_path.read_text(encoding="utf-8")
 
             self.assertEqual(loaded.language, "da")
             self.assertEqual(loaded.manual_model_path, r"C:\models\hviske-v2")
-            self.assertEqual(loaded.hf_token, "secret-token")
+            self.assertEqual(loaded.hf_token, "")
+            self.assertEqual(loaded.llm_api_key, "")
             self.assertEqual(loaded.llm_selected_prompt_name, "Formel")
             self.assertEqual(loaded.llm_system_prompt, "rewrite formally")
             self.assertEqual(len(loaded.llm_prompt_presets), 2)
+            self.assertNotIn("secret-token", raw)
+            self.assertNotIn("llm-secret", raw)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

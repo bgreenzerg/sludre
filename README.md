@@ -84,6 +84,17 @@ Configurable in `Indstillinger`:
 
 If LLM cleanup fails, Sludre prompts whether to insert raw transcription instead.
 
+## Secret Storage
+Sludre stores API keys in a project-local `.env` file:
+
+`.\.env`
+
+Keys used:
+- `HF_TOKEN`
+- `LLM_API_KEY`
+
+Plaintext keys are no longer persisted in `config.json`.
+
 ## Wordlist
 Default file:
 

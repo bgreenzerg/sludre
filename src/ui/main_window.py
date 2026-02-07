@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 from src.core.audio_capture import AudioCapture
 from src.core.app_logging import default_log_file
 from src.core.config import AppConfig, ConfigStore, DEFAULT_LLM_SYSTEM_PROMPT, MISTRAL_MODEL_PRESETS
+from src.core.env_secrets import EnvSecretsStore
 from src.core.hotkey_controller import HotkeyController
 from src.core.llm_refiner import LlmRefiner
 from src.core.model_manager import ModelManager
@@ -188,6 +189,9 @@ class MainWindow(QMainWindow):
 
         self.config_store = ConfigStore.default()
         self.config = self.config_store.load()
+        self.secrets_store = EnvSecretsStore.default()
+        self._secrets_migrated = False
+        self._sync_runtime_secrets()
         self._prompt_presets = self._normalize_prompts(self.config.llm_prompt_presets)
 
         self.audio_capture = AudioCapture(sample_rate=self.config.sample_rate, channels=self.config.channels, max_record_seconds=self.config.max_record_seconds, silence_trim=self.config.silence_trim)
@@ -204,6 +208,9 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(self._logo_path)))
         self._build_ui()
         self._apply_theme()
+        self._ui_log(f"Secrets file: {self.secrets_store.path}")
+        if self._secrets_migrated:
+            self._ui_log("Migrated legacy keys from config.json to project .env")
         self._ui_log(
             f"UI assets: logo={self._logo_path if self._logo_path else 'not found'}, "
             f"background={self._background_path if self._background_path else 'not found'}"
@@ -305,6 +312,28 @@ class MainWindow(QMainWindow):
         wr = QHBoxLayout(); edit_wordlist = QPushButton("Edit wordlist"); edit_wordlist.clicked.connect(self._open_wordlist_editor); wr.addWidget(self.wordlist_enabled); wr.addWidget(self.wordlist_replace); wr.addWidget(self.wordlist_prompt); wr.addWidget(edit_wordlist); s.addLayout(wr)
         s.addWidget(QLabel(self.config.wordlist_path)); save = QPushButton("Gem indstillinger"); save.clicked.connect(self._save_settings); s.addWidget(save); s.addStretch(1)
         self._refresh_prompt_combo(self.config.llm_selected_prompt_name); self._load_prompt(); self._on_provider_changed()
+
+    def _sync_runtime_secrets(self) -> None:
+        self.secrets_store.ensure_exists()
+        legacy_hf = self.config.hf_token.strip()
+        legacy_llm = self.config.llm_api_key.strip()
+        current_hf = self.secrets_store.get_secret("HF_TOKEN").strip()
+        current_llm = self.secrets_store.get_secret("LLM_API_KEY").strip()
+        migrated = False
+        if legacy_hf and not current_hf:
+            self.secrets_store.set_secret("HF_TOKEN", legacy_hf)
+            current_hf = legacy_hf
+            migrated = True
+        if legacy_llm and not current_llm:
+            self.secrets_store.set_secret("LLM_API_KEY", legacy_llm)
+            current_llm = legacy_llm
+            migrated = True
+        self.config.hf_token = current_hf or legacy_hf
+        self.config.llm_api_key = current_llm or legacy_llm
+        if legacy_hf or legacy_llm:
+            # Remove plaintext secrets from config.json after migration/runtime load.
+            self.config_store.save(self.config)
+        self._secrets_migrated = migrated
 
     def _apply_theme(self) -> None:
         self.setStyleSheet(
@@ -433,12 +462,21 @@ class MainWindow(QMainWindow):
         selected = str(self.prompt_select.currentData() or self._prompt_presets[0]["name"])
         selected_text = next((p["prompt"] for p in self._prompt_presets if p["name"] == selected), self.prompt_text.toPlainText().strip())
         self.config.manual_model_path = self.manual_model_input.text().strip()
-        self.config.hf_token = self.hf_token_input.text().strip()
+        hf_token = self.hf_token_input.text().strip()
+        llm_api_key = self.api_key.text().strip()
+        try:
+            self.secrets_store.set_secret("HF_TOKEN", hf_token)
+            self.secrets_store.set_secret("LLM_API_KEY", llm_api_key)
+        except Exception as exc:
+            QMessageBox.critical(self, "Kunne ikke gemme nøgler", f"Kunne ikke skrive .env filen.\n\n{exc}")
+            self._ui_log(f"Failed to write secrets file: {exc}", level=logging.ERROR)
+            return
+        self.config.hf_token = hf_token
         self.config.llm_enabled = self.llm_enabled.isChecked()
         self.config.llm_provider = str(self.provider.currentData())
         self.config.llm_base_url = self.base_url.text().strip()
         self.config.mistral_base_url = self.mistral_base.text().strip()
-        self.config.llm_api_key = self.api_key.text().strip()
+        self.config.llm_api_key = llm_api_key
         self.config.llm_model = self.model_name.text().strip()
         self.config.mistral_model_preset = str(self.mistral_preset.currentData())
         self.config.llm_timeout_seconds = int(self.timeout.value())
@@ -450,7 +488,7 @@ class MainWindow(QMainWindow):
         self.config.wordlist_apply_replacements = self.wordlist_replace.isChecked()
         self.config.wordlist_include_in_prompt = self.wordlist_prompt.isChecked()
         self.config_store.save(self.config)
-        self._ui_log("Indstillinger gemt.")
+        self._ui_log("Indstillinger gemt (.env opdateret).")
         self._start_model_init()
 
     def _on_provider_changed(self) -> None:
@@ -464,9 +502,13 @@ class MainWindow(QMainWindow):
     def _make_model_manager(self, config: AppConfig) -> ModelManager:
         return ModelManager(repo_id=config.model_repo_id, cache_dir=Path(config.model_cache_dir), manual_model_path=config.manual_model_path.strip() or None, hf_token=self._resolve_hf_token(config), log_callback=self._ui_log)
 
-    @staticmethod
-    def _resolve_hf_token(config: AppConfig) -> str | None:
-        token = config.hf_token.strip() or os.getenv("HF_TOKEN", "").strip() or os.getenv("HUGGINGFACE_HUB_TOKEN", "").strip()
+    def _resolve_hf_token(self, config: AppConfig) -> str | None:
+        token = (
+            config.hf_token.strip()
+            or self.secrets_store.get_secret("HF_TOKEN").strip()
+            or os.getenv("HF_TOKEN", "").strip()
+            or os.getenv("HUGGINGFACE_HUB_TOKEN", "").strip()
+        )
         return token or None
 
     @staticmethod

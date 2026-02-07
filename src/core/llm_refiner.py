@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.core.config import AppConfig, DEFAULT_MISTRAL_BASE_URL
+from src.core.env_secrets import EnvSecretsStore
 
 
 def _urlopen(request: Any, timeout: int):
@@ -110,6 +111,9 @@ class LlmRefiner:
         env_key = os.getenv("LLM_API_KEY", "").strip()
         if env_key:
             return env_key
+        dot_env_key = EnvSecretsStore.default().get_secret("LLM_API_KEY").strip()
+        if dot_env_key:
+            return dot_env_key
         raise LlmRefineError("Missing LLM API key.")
 
     @staticmethod

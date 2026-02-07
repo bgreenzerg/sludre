@@ -109,7 +109,7 @@ class ConfigStore:
     def load(self) -> AppConfig:
         if not self.path.exists():
             cfg = AppConfig.defaults()
-            self.save(cfg)
+            self.save(cfg, persist_secrets=True)
             return cfg
 
         raw = json.loads(self.path.read_text(encoding="utf-8"))
@@ -161,12 +161,16 @@ class ConfigStore:
             cfg.llm_system_prompt = selected_prompt_text
             should_save = True
         if should_save:
-            self.save(cfg)
+            self.save(cfg, persist_secrets=True)
         return cfg
 
-    def save(self, config: AppConfig) -> None:
+    def save(self, config: AppConfig, persist_secrets: bool = False) -> None:
+        payload = asdict(config)
+        if not persist_secrets:
+            payload["hf_token"] = ""
+            payload["llm_api_key"] = ""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
-            json.dumps(asdict(config), indent=2, ensure_ascii=True),
+            json.dumps(payload, indent=2, ensure_ascii=True),
             encoding="utf-8",
         )
