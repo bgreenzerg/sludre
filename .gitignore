@@ -41,3 +41,17 @@ test_tmp/
 
 # Large local model assets
 models/
+
+# Extra model artifacts (if placed outside models/)
+**/syvai--hviske-v2/
+**/ctranslate2/
+*.safetensors
+*.safetensors.index.json
+*.gguf
+*.onnx
+*.pt
+*.pth
+*.ckpt
+models/**/*.bin
+**/syvai--hviske-v2/**/*.bin
+**/ctranslate2/**/*.bin
