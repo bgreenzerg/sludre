@@ -38,6 +38,7 @@ test_tmp/
 
 # Local secrets/config
 .env
+wordlist.json
 
 # Large local model assets
 models/
