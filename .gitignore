@@ -1,0 +1,43 @@
+# Python caches/bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
+
+# Build/test tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# App/runtime artifacts
+logs/
+*.log
+tmp*/
+test_tmp/
+.test_tmp/
+
+# Local secrets/config
+.env
+
+# Large local model assets
+models/
