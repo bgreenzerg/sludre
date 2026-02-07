@@ -412,6 +412,32 @@ class MainWindow(QMainWindow):
                 selection-background-color: rgba(50, 210, 124, 80);
                 alternate-background-color: rgba(12, 21, 34, 170);
             }}
+            QComboBox {{
+                padding-right: 8px;
+            }}
+            QComboBox QAbstractItemView {{
+                background: rgba(7, 17, 30, 245);
+                color: {THEME["text"]};
+                border: 1px solid {THEME["border"]};
+                border-radius: 10px;
+                selection-background-color: rgba(50, 210, 124, 135);
+                selection-color: #061B12;
+                outline: 0;
+            }}
+            QComboBox QAbstractItemView::item {{
+                background: transparent;
+                color: {THEME["text"]};
+                min-height: 24px;
+                padding: 4px 8px;
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background: rgba(50, 210, 124, 60);
+                color: {THEME["text"]};
+            }}
+            QComboBox QAbstractItemView::item:selected {{
+                background: rgba(50, 210, 124, 135);
+                color: #061B12;
+            }}
             QHeaderView::section {{
                 background: rgba(5, 12, 24, 190);
                 color: {THEME["muted"]};
