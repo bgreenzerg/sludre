@@ -13,14 +13,32 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 
 function Invoke-Uv {
     param([string[]]$Args)
-    $uvArgs = @()
-    if ($env:VIRTUAL_ENV) {
-        $uvArgs += "--active"
+    $uvArgs = @($Args)
+    $usedActive = $false
+    if ($env:VIRTUAL_ENV -and $Args.Count -ge 1) {
+        if ($Args.Count -eq 1) {
+            $uvArgs = @($Args[0], "--active")
+        } else {
+            $uvArgs = @($Args[0], "--active") + $Args[1..($Args.Count - 1)]
+        }
+        $usedActive = $true
     }
-    $uvArgs += $Args
+
     & uv @uvArgs
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+
+    if ($usedActive) {
+        Write-Warning "uv command with --active failed; retrying without --active."
+        & uv @Args
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+    }
+
     if ($LASTEXITCODE -ne 0) {
-        throw "uv command failed: uv $($uvArgs -join ' ')"
+        throw "uv command failed: uv $($Args -join ' ')"
     }
 }
 
