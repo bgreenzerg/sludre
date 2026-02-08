@@ -18,7 +18,7 @@ Sludre listens while you hold `Ctrl + Space`, transcribes locally with a Whisper
 ## Core Features
 - Global hold-to-talk hotkey: `Ctrl + Space`.
 - Local STT with `syvai/hviske-v2` on CUDA via `faster-whisper`.
-- Automatic model download to local `models/`.
+- Explicit model download button (no auto-download from Hugging Face).
 - Manual model path support.
 - One-time conversion from Transformers Whisper format to CTranslate2 when needed.
 - Optional LLM cleanup pipeline before insert.
@@ -56,7 +56,7 @@ Default model target:
 
 `.\models\syvai--hviske-v2`
 
-Download strategy:
+Download strategy after clicking `Download model` in settings:
 1. Hugging Face CLI (`hf` / `huggingface-cli`)
 2. Python SDK fallback (`huggingface_hub.snapshot_download`)
 

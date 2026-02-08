@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
@@ -100,6 +101,7 @@ class UiBridge(QObject):
     status_changed = Signal(str)
     log_message = Signal(str)
     ready_changed = Signal(bool)
+    model_init_finished = Signal()
     postprocess_ready = Signal(object)
     postprocess_failed = Signal(str)
 
@@ -180,11 +182,13 @@ class MainWindow(QMainWindow):
         self._listening = False
         self._transcribing = False
         self._model_thread: threading.Thread | None = None
+        self._model_init_in_progress = False
 
         self.bridge = UiBridge()
         self.bridge.status_changed.connect(self._set_status_label)
         self.bridge.log_message.connect(self._append_log)
         self.bridge.ready_changed.connect(self._set_ready_state)
+        self.bridge.model_init_finished.connect(self._on_model_init_finished)
         self.bridge.postprocess_ready.connect(self._on_postprocess_ready)
         self.bridge.postprocess_failed.connect(self._on_postprocess_failed)
 
@@ -218,7 +222,7 @@ class MainWindow(QMainWindow):
         )
         self._ui_log(f"Detailed log file: {default_log_file()}")
         self._register_hotkey()
-        self._start_model_init()
+        self._start_model_init(allow_download=False)
 
     @staticmethod
     def _normalize_prompts(raw: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -286,7 +290,7 @@ class MainWindow(QMainWindow):
         hero_layout.addLayout(hero_text, 1)
         main_layout.addWidget(hero)
         form = QFormLayout(); form.addRow("Global hotkey:", QLabel(self.config.hotkey.upper())); form.addRow("Language:", QLabel(self.config.language)); main_layout.addLayout(form)
-        actions = QHBoxLayout(); self.hold_btn = QPushButton("Hold to Talk"); self.retry_btn = QPushButton("Retry Model Init"); self.hold_btn.pressed.connect(self._on_listen_start); self.hold_btn.released.connect(self._on_listen_stop); self.retry_btn.clicked.connect(self._start_model_init); actions.addWidget(self.hold_btn); actions.addWidget(self.retry_btn); actions.addStretch(1); main_layout.addLayout(actions)
+        actions = QHBoxLayout(); self.hold_btn = QPushButton("Hold to Talk"); self.retry_btn = QPushButton("Retry Model Init"); self.hold_btn.pressed.connect(self._on_listen_start); self.hold_btn.released.connect(self._on_listen_stop); self.retry_btn.clicked.connect(lambda: self._start_model_init(allow_download=False)); actions.addWidget(self.hold_btn); actions.addWidget(self.retry_btn); actions.addStretch(1); main_layout.addLayout(actions)
         main_layout.addWidget(QLabel("Output historik:"))
         self.output_table = QTableWidget(0, 4, self); self.output_table.setHorizontalHeaderLabels(["Tid", "Transkribering", "Output", "Kopi"]); self.output_table.horizontalHeader().setStretchLastSection(False); self.output_table.setColumnWidth(0, 90); self.output_table.setColumnWidth(3, 80); main_layout.addWidget(self.output_table, 2)
         self.output_table.verticalHeader().setVisible(False)
@@ -298,7 +302,8 @@ class MainWindow(QMainWindow):
 
         s = QVBoxLayout(settings)
         model_row = QHBoxLayout(); self.manual_model_input = QLineEdit(self.config.manual_model_path); browse = QPushButton("Browse..."); browse.clicked.connect(self._browse_model_path); model_row.addWidget(self.manual_model_input); model_row.addWidget(browse); s.addLayout(model_row)
-        self.hf_token_input = QLineEdit(self.config.hf_token); self.hf_token_input.setEchoMode(QLineEdit.EchoMode.Password); self.hf_token_input.setPlaceholderText("Optional Hugging Face token"); s.addWidget(self.hf_token_input)
+        self.hf_token_input = QLineEdit(self.config.hf_token); self.hf_token_input.setEchoMode(QLineEdit.EchoMode.Password); self.hf_token_input.setPlaceholderText("Optional Hugging Face token"); self.hf_token_input.textChanged.connect(self._update_model_controls); s.addWidget(self.hf_token_input)
+        self.download_model_btn = QPushButton("Download model"); self.download_model_btn.clicked.connect(self._on_download_model_clicked); s.addWidget(self.download_model_btn)
         self.llm_enabled = QCheckBox("Enable LLM cleanup"); self.llm_enabled.setChecked(self.config.llm_enabled); s.addWidget(self.llm_enabled)
         llm = QFormLayout(); self.provider = QComboBox(); self.provider.addItem("OpenAI-compatible", "openai_compatible"); self.provider.addItem("Mistral API", "mistral_api"); self.provider.currentIndexChanged.connect(self._on_provider_changed); self._set_combo(self.provider, self.config.llm_provider)
         self.base_url = QLineEdit(self.config.llm_base_url); self.mistral_base = QLineEdit(self.config.mistral_base_url); self.api_key = QLineEdit(self.config.llm_api_key); self.api_key.setEchoMode(QLineEdit.EchoMode.Password); self.model_name = QLineEdit(self.config.llm_model)
@@ -312,7 +317,7 @@ class MainWindow(QMainWindow):
         self.wordlist_enabled = QCheckBox("Enable wordlist"); self.wordlist_enabled.setChecked(self.config.wordlist_enabled); self.wordlist_replace = QCheckBox("Apply replacements"); self.wordlist_replace.setChecked(self.config.wordlist_apply_replacements); self.wordlist_prompt = QCheckBox("Include preferred terms in prompt"); self.wordlist_prompt.setChecked(self.config.wordlist_include_in_prompt)
         wr = QHBoxLayout(); edit_wordlist = QPushButton("Edit wordlist"); edit_wordlist.clicked.connect(self._open_wordlist_editor); wr.addWidget(self.wordlist_enabled); wr.addWidget(self.wordlist_replace); wr.addWidget(self.wordlist_prompt); wr.addWidget(edit_wordlist); s.addLayout(wr)
         s.addWidget(QLabel(self.config.wordlist_path)); save = QPushButton("Gem indstillinger"); save.clicked.connect(self._save_settings); s.addWidget(save); s.addStretch(1)
-        self._refresh_prompt_combo(self.config.llm_selected_prompt_name); self._load_prompt(); self._on_provider_changed()
+        self._refresh_prompt_combo(self.config.llm_selected_prompt_name); self._load_prompt(); self._on_provider_changed(); self._update_model_controls()
 
     def _sync_runtime_secrets(self) -> None:
         self.secrets_store.ensure_exists()
@@ -489,6 +494,17 @@ class MainWindow(QMainWindow):
         selected = str(self.prompt_select.currentData() or self._prompt_presets[0]["name"])
         selected_text = next((p["prompt"] for p in self._prompt_presets if p["name"] == selected), self.prompt_text.toPlainText().strip())
         self.config.manual_model_path = self.manual_model_input.text().strip()
+        if self.config.manual_model_path:
+            manual_dir = Path(self.config.manual_model_path).expanduser()
+            try:
+                created = not manual_dir.exists()
+                manual_dir.mkdir(parents=True, exist_ok=True)
+                if created:
+                    self._ui_log(f"Created model directory: {manual_dir}")
+            except Exception as exc:
+                QMessageBox.critical(self, "Kunne ikke oprette modelmappe", f"Kunne ikke oprette modelmappen.\n\n{exc}")
+                self._ui_log(f"Failed to create manual model directory: {manual_dir}\nDetails: {exc}", level=logging.ERROR)
+                return
         hf_token = self.hf_token_input.text().strip()
         llm_api_key = self.api_key.text().strip()
         try:
@@ -516,7 +532,8 @@ class MainWindow(QMainWindow):
         self.config.wordlist_include_in_prompt = self.wordlist_prompt.isChecked()
         self.config_store.save(self.config)
         self._ui_log("Indstillinger gemt (.env opdateret).")
-        self._start_model_init()
+        self._update_model_controls()
+        self._start_model_init(allow_download=False)
 
     def _on_provider_changed(self) -> None:
         is_mistral = str(self.provider.currentData()) == "mistral_api"
@@ -542,18 +559,78 @@ class MainWindow(QMainWindow):
     def _initial_model_path(config: AppConfig) -> Path:
         return Path(config.manual_model_path.strip() or config.model_cache_dir)
 
-    def _start_model_init(self) -> None:
-        if self._model_thread and self._model_thread.is_alive(): return
-        self.bridge.ready_changed.emit(False); self.bridge.status_changed.emit("Status: Preparing model..."); self.model_manager = self._make_model_manager(self.config)
+    def _is_model_init_running(self) -> bool:
+        return self._model_init_in_progress or (self._model_thread is not None and self._model_thread.is_alive())
+
+    def _update_model_controls(self) -> None:
+        token_present = bool(self.hf_token_input.text().strip()) if hasattr(self, "hf_token_input") else bool(self.config.hf_token.strip())
+        init_running = self._is_model_init_running()
+        self.hold_btn.setEnabled(self._ready and not init_running)
+        self.retry_btn.setEnabled(not self._ready and not init_running)
+        if hasattr(self, "download_model_btn"):
+            self.download_model_btn.setEnabled(token_present and not init_running)
+
+    def _on_download_model_clicked(self) -> None:
+        self._ui_log("Download model button clicked.")
+        if self._is_model_init_running():
+            self._ui_log("Download request ignored because model initialization is already running.")
+            return
+        hf_token = self.hf_token_input.text().strip()
+        if not hf_token:
+            QMessageBox.warning(self, "HF key mangler", "Udfyld HF key før model-download.")
+            self._ui_log("Download request blocked: HF key is missing.")
+            self._update_model_controls()
+            return
+        try:
+            self.secrets_store.set_secret("HF_TOKEN", hf_token)
+        except Exception as exc:
+            QMessageBox.critical(self, "Kunne ikke gemme HF key", f"Kunne ikke skrive .env filen.\n\n{exc}")
+            self._ui_log(f"Failed to write HF token to secrets file: {exc}", level=logging.ERROR)
+            return
+        self.config.hf_token = hf_token
+        self._ui_log("HF key detected. Starting explicit model download from Hugging Face.")
+        self._start_model_init(allow_download=True)
+
+    def _start_model_init(self, allow_download: bool = False) -> None:
+        if self._model_thread and self._model_thread.is_alive():
+            self._ui_log("Model init request ignored: worker thread is already active.")
+            return
+        if allow_download and not self._resolve_hf_token(self.config):
+            self.bridge.status_changed.emit("Status: Waiting for model download")
+            self.bridge.ready_changed.emit(False)
+            self._ui_log("Model download requires HF key in settings.")
+            self._update_model_controls()
+            return
+        self._model_init_in_progress = True
+        self._update_model_controls()
+        self.bridge.ready_changed.emit(False)
+        self.bridge.status_changed.emit("Status: Downloading model..." if allow_download else "Status: Preparing local model...")
+        self.model_manager = self._make_model_manager(self.config)
+        mode = "download" if allow_download else "local-only"
+        self._ui_log(f"Model init started ({mode}).")
         def worker() -> None:
             try:
-                model_path = self.model_manager.ensure_model_available()
+                if allow_download:
+                    self._ui_log("Model init worker: checking local model and downloading if needed.")
+                    model_path = self.model_manager.ensure_model_available()
+                else:
+                    self._ui_log("Model init worker: resolving existing local model only.")
+                    model_path = self.model_manager.resolve_existing_model_path()
+                self._ui_log(f"Model init worker: loading transcriber from {model_path}")
                 t = Transcriber(model_path=model_path, device="cuda"); t.load()
                 with self._state_lock: self.transcriber = t
                 self.bridge.status_changed.emit("Status: Ready"); self.bridge.ready_changed.emit(True); self._ui_log(f"Model loaded: {model_path}")
+            except FileNotFoundError as exc:
+                self.bridge.status_changed.emit("Status: Waiting for model download"); self.bridge.ready_changed.emit(False); self._ui_log(str(exc))
             except Exception as exc:
-                self.bridge.status_changed.emit("Status: Error loading model"); self.bridge.ready_changed.emit(False); self._ui_log(f"Model initialization failed.\nDetails: {exc}", level=logging.ERROR)
+                self.bridge.status_changed.emit("Status: Error loading model"); self.bridge.ready_changed.emit(False); self._ui_log(f"Model initialization failed.\nDetails: {exc}\nTraceback:\n{traceback.format_exc()}", level=logging.ERROR)
+            finally:
+                self.bridge.model_init_finished.emit()
         self._model_thread = threading.Thread(target=worker, daemon=True); self._model_thread.start()
+
+    def _on_model_init_finished(self) -> None:
+        self._model_init_in_progress = False
+        self._update_model_controls()
 
     def _open_wordlist_editor(self) -> None:
         dialog = WordlistEditorDialog(self.wordlist_store.load(), self)
@@ -637,7 +714,7 @@ class MainWindow(QMainWindow):
 
     def _set_ready_state(self, ready: bool) -> None:
         with self._state_lock: self._ready = ready
-        self.hold_btn.setEnabled(ready); self.retry_btn.setEnabled(not ready)
+        self._update_model_controls()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.hotkey.unregister()

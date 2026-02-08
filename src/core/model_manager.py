@@ -85,12 +85,138 @@ class ModelManager:
         if notify_ui and self.log_callback:
             self.log_callback(message)
 
+    def _log_error(self, message: str, notify_ui: bool = False) -> None:
+        self.logger.error(message)
+        if notify_ui and self.log_callback:
+            self.log_callback(message)
+
+    @staticmethod
+    def _format_bytes(size: int) -> str:
+        units = ["B", "KB", "MB", "GB", "TB"]
+        value = float(max(size, 0))
+        for unit in units:
+            if value < 1024.0 or unit == units[-1]:
+                if unit == "B":
+                    return f"{int(value)} {unit}"
+                return f"{value:.1f} {unit}"
+            value /= 1024.0
+
     def _download_dir(self) -> Path:
         safe_name = self.repo_id.replace("/", "--")
         return self.cache_dir / safe_name
 
     def download_dir(self) -> Path:
         return self._download_dir()
+
+    def _resolve_ready_model_dir(self, model_dir: Path) -> Path | None:
+        if self._is_ctranslate2_model(model_dir):
+            return model_dir
+        converted_dir = model_dir / "ctranslate2"
+        if self._is_ctranslate2_model(converted_dir):
+            return converted_dir
+        if self._looks_like_transformers_whisper_model(model_dir):
+            return self._ensure_runtime_model_format(model_dir)
+        return None
+
+    def _resolve_manual_model_path(self, for_download: bool = False) -> tuple[Path, bool] | None:
+        if not self.manual_model_path:
+            return None
+        model_path = Path(self.manual_model_path).expanduser()
+        if not model_path.exists():
+            model_path.mkdir(parents=True, exist_ok=True)
+            self._log_info(
+                f"Created missing manual model directory: {model_path}",
+                notify_ui=True,
+            )
+        ready_model_path = self._resolve_ready_model_dir(model_path)
+        if ready_model_path is not None:
+            self._log_info(
+                f"Using manual model path: {ready_model_path}",
+                notify_ui=True,
+            )
+            return ready_model_path, True
+        if for_download:
+            self._log_info(
+                "Manual model path does not contain a complete model yet. "
+                f"Download will target: {model_path}",
+                notify_ui=True,
+            )
+            return model_path, False
+        raise FileNotFoundError(
+            "Manual model path does not contain a valid model yet: "
+            f"{model_path}. Press 'Download model' to fetch model files."
+        )
+
+    def _resolve_cached_model_path(self) -> Path | None:
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = self._download_dir()
+        if not target_dir.exists():
+            target_dir.mkdir(parents=True, exist_ok=True)
+            self._log_info(
+                f"Created missing model target directory: {target_dir}",
+                notify_ui=True,
+            )
+        ready_model_path = self._resolve_ready_model_dir(target_dir)
+        if ready_model_path is None:
+            return None
+        if ready_model_path == target_dir:
+            self._log_info(
+                f"Using cached CTranslate2 model: {target_dir}",
+                notify_ui=True,
+            )
+        elif ready_model_path == target_dir / "ctranslate2":
+            self._log_info(
+                f"Using cached converted CTranslate2 model: {ready_model_path}",
+                notify_ui=True,
+            )
+        else:
+            self._log_info(
+                f"Using cached Hugging Face model files from: {target_dir}",
+                notify_ui=True,
+            )
+        return ready_model_path
+
+    def resolve_existing_model_path(self) -> Path:
+        manual = self._resolve_manual_model_path(for_download=False)
+        if manual is not None:
+            return manual[0]
+        cached = self._resolve_cached_model_path()
+        if cached is not None:
+            return cached
+        raise FileNotFoundError(
+            "No local model found. Configure a manual model path or "
+            "download the model first."
+        )
+
+    def _download_to_target(self, target_dir: Path) -> Path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        self._log_info(f"Model target directory: {target_dir}", notify_ui=True)
+        self._log_info(
+            "No complete local model detected. Starting download flow.",
+            notify_ui=True,
+        )
+        progress_plan = self._prepare_download_progress_plan(target_dir)
+        try:
+            downloaded = self._download_with_cli(target_dir, progress_plan=progress_plan)
+        except Exception as cli_exc:
+            self._log_warning(
+                f"huggingface-cli download failed. Falling back to Python SDK. "
+                f"Error: {cli_exc}",
+                notify_ui=True,
+            )
+            try:
+                downloaded = self._download_snapshot(target_dir)
+            except Exception as sdk_exc:
+                self._log_error(
+                    "Model download failed with both huggingface-cli and Python SDK.\n"
+                    f"CLI error: {cli_exc}\nSDK error: {sdk_exc}",
+                    notify_ui=True,
+                )
+                raise RuntimeError(
+                    "Model download failed with both huggingface-cli and "
+                    f"Python SDK fallback.\nCLI error: {cli_exc}\nSDK error: {sdk_exc}"
+                ) from sdk_exc
+        return self._ensure_runtime_model_format(downloaded)
 
     def _download_snapshot(self, target_dir: Path) -> Path:
         self._log_info(
@@ -123,6 +249,98 @@ class ModelManager:
                 notify_ui=True,
             )
             return Path(model_path)
+
+    def _prepare_download_progress_plan(self, target_dir: Path) -> dict[str, int] | None:
+        if not self.log_callback:
+            return None
+        try:
+            dry_run = _snapshot_download(
+                repo_id=self.repo_id,
+                local_dir=str(target_dir),
+                local_files_only=False,
+                token=self.hf_token,
+                etag_timeout=30,
+                max_workers=4,
+                allow_patterns=INFERENCE_ALLOW_PATTERNS,
+                dry_run=True,
+            )
+        except Exception as exc:
+            self._log_warning(
+                f"Could not estimate download size before starting transfer. Details: {exc}",
+                notify_ui=True,
+            )
+            return None
+
+        if not isinstance(dry_run, list):
+            return None
+        planned: dict[str, int] = {}
+        for item in dry_run:
+            filename = str(getattr(item, "filename", "")).strip()
+            if not filename:
+                continue
+            if not bool(getattr(item, "will_download", True)):
+                continue
+            planned[filename] = max(int(getattr(item, "file_size", 0) or 0), 0)
+
+        if not planned:
+            self._log_info(
+                "Download plan: no new files reported by dry-run (files may already be cached).",
+                notify_ui=True,
+            )
+            return None
+
+        total_bytes = sum(planned.values())
+        self._log_info(
+            f"Download plan: {len(planned)} files, {self._format_bytes(total_bytes)} to download.",
+            notify_ui=True,
+        )
+        return planned
+
+    def _emit_download_progress(
+        self,
+        target_dir: Path,
+        plan: dict[str, int] | None,
+        state: dict[str, object],
+        force: bool = False,
+    ) -> None:
+        if not plan:
+            return
+        total_bytes = int(sum(plan.values()))
+        if total_bytes <= 0:
+            return
+
+        downloaded_bytes = 0
+        for rel_path, expected_size in plan.items():
+            file_path = target_dir / rel_path
+            try:
+                if file_path.exists():
+                    actual_size = int(file_path.stat().st_size)
+                    if expected_size > 0:
+                        downloaded_bytes += min(actual_size, expected_size)
+                    else:
+                        downloaded_bytes += max(actual_size, 0)
+            except OSError:
+                continue
+        downloaded_bytes = min(downloaded_bytes, total_bytes)
+        percent = int((downloaded_bytes * 100) / total_bytes)
+
+        previous_percent = int(state.get("percent", -1))
+        last_emit = float(state.get("last_emit", 0.0))
+        now = time.monotonic()
+        if not force:
+            if percent <= previous_percent and (now - last_emit) < 10.0:
+                return
+            if percent < previous_percent + 2 and (now - last_emit) < 2.0:
+                return
+        if force and percent == previous_percent and previous_percent >= 0:
+            return
+
+        self._log_info(
+            f"Download progress: {percent}% ({self._format_bytes(downloaded_bytes)} / {self._format_bytes(total_bytes)})",
+            notify_ui=True,
+        )
+        state["percent"] = percent
+        state["last_emit"] = now
 
     def _hf_cli_command(self, target_dir: Path) -> list[str]:
         command = self._candidate_cli_bases()[0] + [
@@ -292,11 +510,12 @@ class ModelManager:
         )
         return converted_dir
 
-    def _download_with_cli(self, target_dir: Path) -> Path:
+    def _download_with_cli(self, target_dir: Path, progress_plan: dict[str, int] | None = None) -> Path:
         env = os.environ.copy()
         env.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
         self._log_info("Starting Hugging Face CLI download...", notify_ui=True)
         entrypoint_errors: list[str] = []
+        progress_state: dict[str, object] = {"percent": -1, "last_emit": 0.0}
         for cli_base in self._candidate_cli_bases():
             command = self._build_cli_command(cli_base, target_dir)
             cli_name = " ".join(cli_base)
@@ -308,19 +527,25 @@ class ModelManager:
                 f"CLI command: {self._format_command_for_log(command, self.hf_token)}"
             )
             try:
-                result = self._run_with_heartbeat(command, env)
+                result = self._run_with_heartbeat(
+                    command,
+                    env,
+                    target_dir=target_dir,
+                    progress_plan=progress_plan,
+                    progress_state=progress_state,
+                )
             except FileNotFoundError as exc:
                 msg = f"{cli_name}: not found ({exc})"
-                self._log_warning(msg)
+                self._log_warning(msg, notify_ui=True)
                 entrypoint_errors.append(msg)
                 continue
 
             stdout = (result.stdout or "").strip()
             stderr = (result.stderr or "").strip()
             if stdout:
-                self._log_info(f"CLI stdout:\n{stdout}")
+                self._log_info(f"CLI stdout:\n{stdout}", notify_ui=True)
             if stderr:
-                self._log_warning(f"CLI stderr:\n{stderr}")
+                self._log_warning(f"CLI stderr:\n{stderr}", notify_ui=True)
             self._log_info(
                 f"{cli_name} finished with return code {result.returncode}",
                 notify_ui=True,
@@ -342,20 +567,38 @@ class ModelManager:
             if self._looks_like_missing_entrypoint(details):
                 msg = f"{cli_name}: unavailable ({details})"
                 entrypoint_errors.append(msg)
-                self._log_warning(msg)
+                self._log_warning(msg, notify_ui=True)
                 continue
+            self._log_error(f"{cli_name} failed: {details}", notify_ui=True)
             raise RuntimeError(f"{cli_name} failed: {details}")
 
         joined = "\n".join(entrypoint_errors) if entrypoint_errors else "No output."
+        self._log_error(
+            "No compatible Hugging Face CLI entrypoint worked.\n"
+            f"Details:\n{joined}",
+            notify_ui=True,
+        )
         raise RuntimeError(
             "No compatible Hugging Face CLI entrypoint worked.\n"
             f"Details:\n{joined}"
         )
 
-    def _run_with_heartbeat(self, command: list[str], env: dict[str, str]):
+    def _run_with_heartbeat(
+        self,
+        command: list[str],
+        env: dict[str, str],
+        target_dir: Path | None = None,
+        progress_plan: dict[str, int] | None = None,
+        progress_state: dict[str, object] | None = None,
+    ):
         state: dict[str, object] = {}
         error: dict[str, Exception] = {}
         started = time.monotonic()
+        local_progress_state = (
+            progress_state
+            if progress_state is not None
+            else {"percent": -1, "last_emit": 0.0}
+        )
 
         def worker() -> None:
             try:
@@ -373,12 +616,25 @@ class ModelManager:
         thread.start()
         while thread.is_alive():
             thread.join(timeout=10.0)
+            if target_dir is not None:
+                self._emit_download_progress(
+                    target_dir=target_dir,
+                    plan=progress_plan,
+                    state=local_progress_state,
+                )
             if thread.is_alive():
                 elapsed = int(time.monotonic() - started)
                 self._log_info(
                     f"huggingface-cli still running... elapsed {elapsed}s",
                     notify_ui=True,
                 )
+        if target_dir is not None:
+            self._emit_download_progress(
+                target_dir=target_dir,
+                plan=progress_plan,
+                state=local_progress_state,
+                force=True,
+            )
         if "exception" in error:
             raise error["exception"]
         result = state.get("result")
@@ -387,35 +643,20 @@ class ModelManager:
         return result
 
     def ensure_model_available(self) -> Path:
-        if self.manual_model_path:
-            model_path = Path(self.manual_model_path).expanduser()
-            if model_path.exists():
-                self._log_info(
-                    f"Using manual model path: {model_path}",
-                    notify_ui=True,
-                )
-                return self._ensure_runtime_model_format(model_path)
-            raise FileNotFoundError(
-                f"Manual model path does not exist: {model_path}"
-            )
-
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        target_dir = self._download_dir()
-        target_dir.mkdir(parents=True, exist_ok=True)
-        self._log_info(f"Model target directory: {target_dir}", notify_ui=True)
-        try:
-            downloaded = self._download_with_cli(target_dir)
-        except Exception as cli_exc:
-            self._log_warning(
-                f"huggingface-cli download failed. Falling back to Python SDK. "
-                f"Error: {cli_exc}",
+        manual = self._resolve_manual_model_path(for_download=True)
+        if manual is not None:
+            manual_path, ready = manual
+            if ready:
+                return manual_path
+            self._log_info(
+                f"Manual model directory selected as download target: {manual_path}",
                 notify_ui=True,
             )
-            try:
-                downloaded = self._download_snapshot(target_dir)
-            except Exception as sdk_exc:
-                raise RuntimeError(
-                    "Model download failed with both huggingface-cli and "
-                    f"Python SDK fallback.\nCLI error: {cli_exc}\nSDK error: {sdk_exc}"
-                ) from sdk_exc
-        return self._ensure_runtime_model_format(downloaded)
+            return self._download_to_target(manual_path)
+
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        cached = self._resolve_cached_model_path()
+        if cached is not None:
+            return cached
+
+        return self._download_to_target(self._download_dir())
