@@ -19,7 +19,7 @@ hiddenimports += collect_submodules("ctranslate2")
 
 
 a = Analysis(
-    ["src/app.py"],
+    [str(project_root / "src" / "app.py")],
     pathex=[str(project_root)],
     binaries=[],
     datas=datas,

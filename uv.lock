@@ -3581,6 +3581,14 @@ dev = [
     { name = "pytest" },
 ]
 
+[package.dev-dependencies]
+build = [
+    { name = "pyinstaller" },
+]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "faster-whisper", specifier = ">=1.0.3" },
@@ -3594,6 +3602,10 @@ requires-dist = [
     { name = "sounddevice", specifier = ">=0.4.7" },
 ]
 provides-extras = ["build", "dev"]
+
+[package.metadata.requires-dev]
+build = [{ name = "pyinstaller", specifier = ">=6.10" }]
+dev = [{ name = "pytest", specifier = ">=8.3" }]
 
 [[package]]
 name = "sounddevice"

@@ -19,28 +19,9 @@ function Invoke-Uv {
     if (-not $CommandArgs -or $CommandArgs.Count -eq 0) {
         throw "Invoke-Uv requires at least one uv command argument."
     }
-    $uvArgs = @($CommandArgs)
-    $usedActive = $false
-    if ($env:VIRTUAL_ENV -and $CommandArgs.Count -ge 1) {
-        if ($CommandArgs.Count -eq 1) {
-            $uvArgs = @($CommandArgs[0], "--active")
-        } else {
-            $uvArgs = @($CommandArgs[0], "--active") + $CommandArgs[1..($CommandArgs.Count - 1)]
-        }
-        $usedActive = $true
-    }
-
-    & uv @uvArgs
+    & uv @CommandArgs
     if ($LASTEXITCODE -eq 0) {
         return
-    }
-
-    if ($usedActive) {
-        Write-Warning "uv command with --active failed; retrying without --active."
-        & uv @CommandArgs
-        if ($LASTEXITCODE -eq 0) {
-            return
-        }
     }
 
     if ($LASTEXITCODE -ne 0) {
