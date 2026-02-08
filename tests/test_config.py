@@ -4,11 +4,13 @@ import unittest
 from pathlib import Path
 import shutil
 import uuid
+from unittest.mock import patch
 
 from src.core.config import (
     AppConfig,
     ConfigStore,
     _default_model_cache_dir,
+    _default_wordlist_path,
     _legacy_default_model_cache_dir,
 )
 
@@ -76,6 +78,31 @@ class ConfigStoreTests(unittest.TestCase):
             loaded = store.load()
 
             self.assertEqual(loaded.model_cache_dir, str(_default_model_cache_dir()))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_default_store_migrates_legacy_config_to_runtime_root(self) -> None:
+        tmp = Path(".test_tmp") / f"config_{uuid.uuid4().hex}"
+        tmp.mkdir(parents=True, exist_ok=True)
+        try:
+            runtime_config = tmp / "config.json"
+            legacy_config = tmp / "legacy" / "config.json"
+            legacy_config.parent.mkdir(parents=True, exist_ok=True)
+            legacy_config.write_text(
+                '{"language":"da","model_cache_dir":"","wordlist_path":""}',
+                encoding="utf-8",
+            )
+
+            with patch("src.core.config.config_path_default", return_value=runtime_config):
+                with patch("src.core.config._legacy_default_config_path", return_value=legacy_config):
+                    store = ConfigStore.default()
+                    loaded = store.load()
+
+            self.assertEqual(store.path, runtime_config)
+            self.assertTrue(runtime_config.exists())
+            self.assertEqual(loaded.language, "da")
+            self.assertEqual(loaded.model_cache_dir, str(_default_model_cache_dir()))
+            self.assertEqual(loaded.wordlist_path, str(_default_wordlist_path()))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

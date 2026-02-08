@@ -32,12 +32,15 @@ Thumbs.db
 # App/runtime artifacts
 logs/
 *.log
+dist/
+build/
 tmp*/
 test_tmp/
 .test_tmp/
 
 # Local secrets/config
 .env
+config.json
 wordlist.json
 
 # Large local model assets

@@ -3,12 +3,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from src.core.runtime_paths import project_env_path
+
 
 _KEY_PATTERN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$")
-
-
-def _project_root_dir() -> Path:
-    return Path(__file__).resolve().parents[2]
 
 
 class EnvSecretsStore:
@@ -17,7 +15,7 @@ class EnvSecretsStore:
 
     @classmethod
     def default(cls) -> "EnvSecretsStore":
-        return cls(_project_root_dir() / ".env")
+        return cls(project_env_path())
 
     def ensure_exists(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -5,6 +5,12 @@ import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from src.core.runtime_paths import (
+    config_path_default,
+    models_dir,
+    wordlist_path_default,
+)
+
 
 APP_DIR_NAME = "HviskeSTT"
 DEFAULT_LLM_SYSTEM_PROMPT = (
@@ -27,10 +33,6 @@ def _default_app_dir() -> Path:
     return Path.home() / f".{APP_DIR_NAME.lower()}"
 
 
-def _project_root_dir() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
 def _legacy_default_model_cache_dir() -> Path:
     local_app_data = os.getenv("LOCALAPPDATA")
     if local_app_data:
@@ -39,11 +41,15 @@ def _legacy_default_model_cache_dir() -> Path:
 
 
 def _default_model_cache_dir() -> Path:
-    return _project_root_dir() / "models"
+    return models_dir()
 
 
 def _default_wordlist_path() -> Path:
-    return _project_root_dir() / "wordlist.json"
+    return wordlist_path_default()
+
+
+def _legacy_default_config_path() -> Path:
+    return _default_app_dir() / "config.json"
 
 
 def _same_path(a: str | Path, b: str | Path) -> bool:
@@ -104,17 +110,22 @@ class ConfigStore:
 
     @classmethod
     def default(cls) -> "ConfigStore":
-        return cls(_default_app_dir() / "config.json")
+        return cls(config_path_default())
 
     def load(self) -> AppConfig:
-        if not self.path.exists():
-            cfg = AppConfig.defaults()
-            self.save(cfg, persist_secrets=True)
-            return cfg
+        source_path = self.path
+        if not source_path.exists():
+            legacy_path = _legacy_default_config_path()
+            if legacy_path.exists():
+                source_path = legacy_path
+            else:
+                cfg = AppConfig.defaults()
+                self.save(cfg)
+                return cfg
 
-        raw = json.loads(self.path.read_text(encoding="utf-8"))
+        raw = json.loads(source_path.read_text(encoding="utf-8"))
         cfg = AppConfig.defaults()
-        should_save = False
+        should_save = source_path != self.path
         for key, value in raw.items():
             if hasattr(cfg, key):
                 setattr(cfg, key, value)
@@ -161,7 +172,7 @@ class ConfigStore:
             cfg.llm_system_prompt = selected_prompt_text
             should_save = True
         if should_save:
-            self.save(cfg, persist_secrets=True)
+            self.save(cfg)
         return cfg
 
     def save(self, config: AppConfig, persist_secrets: bool = False) -> None:

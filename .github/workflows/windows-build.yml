@@ -1,0 +1,43 @@
+name: windows-build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --group build
+
+      - name: Run tests
+        run: uv run python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Build executable
+        run: uv run --group build pyinstaller --noconfirm --clean packaging/pyinstaller.spec
+
+      - name: Zip artifact
+        shell: pwsh
+        run: |
+          if (Test-Path dist/Sludre-win64.zip) { Remove-Item dist/Sludre-win64.zip -Force }
+          Compress-Archive -Path dist/Sludre/* -DestinationPath dist/Sludre-win64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sludre-win64
+          path: dist/Sludre-win64.zip

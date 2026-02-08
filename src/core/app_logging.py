@@ -4,13 +4,11 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-
-def _project_root_dir() -> Path:
-    return Path(__file__).resolve().parents[2]
+from src.core.runtime_paths import logs_dir
 
 
 def default_log_file() -> Path:
-    return _project_root_dir() / "logs" / "sludre.log"
+    return logs_dir() / "sludre.log"
 
 
 def configure_logging(log_file: Path | None = None) -> Path:

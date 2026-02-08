@@ -42,6 +42,7 @@ from src.core.hotkey_controller import HotkeyController
 from src.core.llm_refiner import LlmRefiner
 from src.core.model_manager import ModelManager
 from src.core.pipeline import PostProcessResult, TranscriptionPostProcessor
+from src.core.runtime_paths import assets_dir, runtime_root
 from src.core.text_inserter import TextInserter
 from src.core.transcriber import Transcriber
 from src.core.wordlist_store import ReplacementRule, WordlistData, WordlistStore
@@ -227,7 +228,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _find_asset(candidates: list[str]) -> Path | None:
-        roots = [Path("assets"), Path(".")]
+        roots = [assets_dir(), runtime_root(), Path("assets"), Path(".")]
         for root in roots:
             for name in candidates:
                 candidate = root / name
