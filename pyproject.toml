@@ -26,5 +26,13 @@ dev = [
   "pytest>=8.3",
 ]
 
+[dependency-groups]
+build = [
+  "pyinstaller>=6.10",
+]
+dev = [
+  "pytest>=8.3",
+]
+
 [tool.uv]
 package = false

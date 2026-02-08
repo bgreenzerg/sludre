@@ -76,7 +76,7 @@ Plaintext secrets are not persisted in `config.json`.
 ## Build Windows `.exe` (PyInstaller)
 ### Local build
 ```powershell
-.\scripts\build_exe.ps1
+.\tools\build_exe.ps1
 ```
 
 This produces:
@@ -105,7 +105,7 @@ uv run python -m compileall src
 ```text
 .github/workflows/windows-build.yml
 packaging/pyinstaller.spec
-scripts/build_exe.ps1
+tools/build_exe.ps1
 src/
   app.py
   core/
