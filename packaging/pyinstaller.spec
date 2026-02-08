@@ -16,6 +16,7 @@ for name in ("sludre_logo.png", "sludre_background_stick.png", "background.jpg")
 hiddenimports = []
 hiddenimports += collect_submodules("faster_whisper")
 hiddenimports += collect_submodules("ctranslate2")
+hiddenimports += ["transformers", "torch"]
 
 
 a = Analysis(

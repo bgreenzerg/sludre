@@ -21,6 +21,7 @@ Sludre listens while you hold `Ctrl + Space`, transcribes locally with a Whisper
 - Explicit model download button (no auto-download from Hugging Face).
 - Manual model path support.
 - One-time conversion from Transformers Whisper format to CTranslate2 when needed.
+  - Conversion dependencies (`transformers`, `torch`) are included in project/build deps.
 - Optional LLM cleanup pipeline before insert.
 - LLM providers: OpenAI-compatible endpoint and Mistral API.
 - Named system prompt presets (create/update/delete).
