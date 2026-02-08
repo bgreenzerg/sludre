@@ -3,9 +3,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
-$root = Split-Path -Parent $root
+$root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $root
+
+if (-not (Test-Path (Join-Path $root "pyproject.toml"))) {
+    throw "pyproject.toml not found at expected project root: $root"
+}
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     throw "uv is required. Install uv first: https://docs.astral.sh/uv/"
