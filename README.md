@@ -34,18 +34,39 @@ Sludre listens while you hold `Ctrl + Space`, transcribes locally with a Whisper
 - Python 3.11+
 - `uv` installed (`https://docs.astral.sh/uv/`)
 
-## Quick Start (Source with uv)
+## Quick Start
+### 1) Install dependencies
 ```powershell
 uv sync
+```
+
+### 2) Start the app
+```powershell
 uv run -m src.app
 ```
 
-## Project Runtime Paths
+### 3) First-time model setup in the app
+1. Open `Indstillinger`.
+2. Enter your Hugging Face key in the `HF key` field.
+3. Optional: set `Manual model path` if you want a custom model folder.
+4. Click `Download model`.
+5. Wait for status `Ready`.
+
+When downloading, follow progress in `System log`:
+- download plan (`files` + total size),
+- progress updates (`X%` + bytes),
+- detailed CLI/SDK fallback errors if something fails.
+
+### 4) Use it
+- Hold `Ctrl + Space` to record.
+- Release to transcribe and insert text.
+
+## Runtime Files and Paths
 Sludre resolves paths from the active runtime root:
 - Source run: repository root
 - Frozen `.exe`: folder containing `Sludre.exe`
 
-This means the following files are local and visible next to your source or exe bundle:
+This means these files are visible next to your source tree or exe bundle:
 - secrets: `.\.env`
 - config: `.\config.json`
 - models: `.\models\`
@@ -65,7 +86,10 @@ If the model is Transformers format (`*.safetensors`), Sludre auto-converts once
 
 `.\models\syvai--hviske-v2\ctranslate2`
 
-Manual model folder can always be configured in `Indstillinger`.
+Manual model behavior:
+- `Manual model path` can be configured in `Indstillinger`.
+- If the folder does not exist, Sludre creates it.
+- If the folder exists but has no valid model yet, `Download model` will download into that folder.
 
 ## Secret Storage
 API keys are stored in project-local `.env`:
@@ -73,6 +97,27 @@ API keys are stored in project-local `.env`:
 - `LLM_API_KEY`
 
 Plaintext secrets are not persisted in `config.json`.
+
+## Troubleshooting
+### Download button does nothing
+- Check `HF key` is filled in.
+- Check `System log` for lines starting with model/download events.
+
+### Model load fails with missing `model.bin`
+- This means the selected manual path does not contain a complete model yet.
+- Click `Download model` and let it finish.
+- If needed, clear the incomplete model folder and retry.
+
+### Conversion error about missing `transformers` / `torch`
+- Run:
+```powershell
+uv sync
+```
+- Both packages are part of project dependencies and build dependencies.
+
+### Hugging Face auth/network problems
+- Verify token validity and repo access on Hugging Face.
+- Check `System log` for CLI stderr and fallback details.
 
 ## Build Windows `.exe` (PyInstaller)
 ### Local build
