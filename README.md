@@ -38,7 +38,7 @@ Sludre listens while you hold `Ctrl + Space`, transcribes locally with a Whisper
 ### 1) Download release (anbefalet)
 Hent zip-filen fra releases her:
 
-https://github.com/bgreenzerg/sludre/releases/new
+[https://github.com/bgreenzerg/sludre/releases](https://github.com/bgreenzerg/sludre/releases)
 
 Udpak zip-filen og kør `Sludre.exe`.
 
