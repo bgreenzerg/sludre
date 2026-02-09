@@ -34,13 +34,21 @@ Sludre listens while you hold `Ctrl + Space`, transcribes locally with a Whisper
 - Python 3.11+
 - `uv` installed (`https://docs.astral.sh/uv/`)
 
-## Quick Start
-### 1) Install dependencies
+## Installation
+### 1) Download release (anbefalet)
+Hent zip-filen fra releases her:
+
+https://github.com/bgreenzerg/sludre/releases/new
+
+Udpak zip-filen og kør `Sludre.exe`.
+
+### 2) Kør fra source med uv
+Install dependencies:
 ```powershell
 uv sync
 ```
 
-### 2) Start the app
+Start the app:
 ```powershell
 uv run -m src.app
 ```
