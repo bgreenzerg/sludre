@@ -1,5 +1,7 @@
 param(
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$IncludeBundledModel,
+    [string]$BundledModelSource = "models\syvai--hviske-v2"
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,6 +50,56 @@ function Invoke-Uv {
     }
 }
 
+function New-ZipWithPython {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceDir,
+        [Parameter(Mandatory = $true)][string]$DestinationZip
+    )
+
+    $zipScript = @'
+import sys
+import zipfile
+from pathlib import Path
+
+src = Path(sys.argv[1]).resolve()
+dst = Path(sys.argv[2]).resolve()
+
+if not src.exists():
+    raise FileNotFoundError(f"Source directory not found: {src}")
+if dst.exists():
+    dst.unlink()
+
+with zipfile.ZipFile(dst, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as zf:
+    for path in src.rglob("*"):
+        if path.is_file():
+            zf.write(path, path.relative_to(src).as_posix())
+
+print(f"Zip created: {dst}")
+'@
+    $zipScript | uv run python - $SourceDir $DestinationZip
+    if ($LASTEXITCODE -ne 0) {
+        throw "Zip creation failed: $DestinationZip"
+    }
+}
+
+function Clear-BundleRuntimeState {
+    param(
+        [Parameter(Mandatory = $true)][string]$BundleDir,
+        [switch]$RemoveModels
+    )
+
+    $items = @(".env", "config.json", "wordlist.json", "logs")
+    if ($RemoveModels) {
+        $items += "models"
+    }
+    foreach ($name in $items) {
+        $path = Join-Path $BundleDir $name
+        if (Test-Path $path) {
+            Remove-Item $path -Recurse -Force
+        }
+    }
+}
+
 Write-Host "Syncing dependencies (build group)..."
 Invoke-Uv -CommandArgs @("sync", "--group", "build")
 
@@ -57,18 +109,51 @@ if (-not $SkipTests) {
 }
 
 Write-Host "Building Sludre.exe with PyInstaller..."
+if (Test-Path (Join-Path $root "dist\Sludre")) {
+    Remove-Item (Join-Path $root "dist\Sludre") -Recurse -Force
+}
 Invoke-Uv -CommandArgs @("run", "--group", "build", "pyinstaller", "--noconfirm", "--clean", "packaging/pyinstaller.spec")
 
 $distDir = Join-Path $root "dist"
 $bundleDir = Join-Path $distDir "Sludre"
-$zipPath = Join-Path $distDir "Sludre-win64.zip"
+$liteZipPath = Join-Path $distDir "Sludre-win64-lite.zip"
+$withModelZipPath = Join-Path $distDir "Sludre-win64-with-model.zip"
 if (-not (Test-Path $bundleDir)) {
     throw "Build output not found: $bundleDir"
 }
-if (Test-Path $zipPath) {
-    Remove-Item $zipPath -Force
+if (Test-Path $liteZipPath) {
+    Remove-Item $liteZipPath -Force
 }
 
-Write-Host "Creating zip artifact: $zipPath"
-Compress-Archive -Path (Join-Path $bundleDir "*") -DestinationPath $zipPath -Force
+Clear-BundleRuntimeState -BundleDir $bundleDir -RemoveModels
+
+Write-Host "Creating lite zip artifact: $liteZipPath"
+New-ZipWithPython -SourceDir $bundleDir -DestinationZip $liteZipPath
+
+if ($IncludeBundledModel) {
+    $modelSourcePath = $BundledModelSource
+    if (-not [System.IO.Path]::IsPathRooted($modelSourcePath)) {
+        $modelSourcePath = Join-Path $root $modelSourcePath
+    }
+    if (-not (Test-Path $modelSourcePath)) {
+        throw "Bundled model source not found: $modelSourcePath"
+    }
+    $modelSourcePath = (Resolve-Path $modelSourcePath).Path
+    $modelDestRoot = Join-Path $bundleDir "models"
+    New-Item -ItemType Directory -Path $modelDestRoot -Force | Out-Null
+    $modelDestPath = Join-Path $modelDestRoot (Split-Path $modelSourcePath -Leaf)
+    if (Test-Path $modelDestPath) {
+        Remove-Item $modelDestPath -Recurse -Force
+    }
+    Write-Host "Bundling local model from: $modelSourcePath"
+    Copy-Item -Path $modelSourcePath -Destination $modelDestRoot -Recurse -Force
+    Clear-BundleRuntimeState -BundleDir $bundleDir
+
+    if (Test-Path $withModelZipPath) {
+        Remove-Item $withModelZipPath -Force
+    }
+    Write-Host "Creating with-model zip artifact: $withModelZipPath"
+    New-ZipWithPython -SourceDir $bundleDir -DestinationZip $withModelZipPath
+}
+
 Write-Host "Done."

@@ -42,6 +42,14 @@ https://github.com/bgreenzerg/sludre/releases/new
 
 Udpak zip-filen og kør `Sludre.exe`.
 
+Release assets:
+- `Sludre-win64-lite.zip`:
+  - Mindre download
+  - Kræver `HF key` + klik på `Download model` i appen
+- `Sludre-win64-with-model.zip`:
+  - Større download
+  - Model bundlet fra lokal mappe (`models\syvai--hviske-v2`) under build, så HF-opsætning normalt ikke er nødvendig
+
 ### 2) Kør fra source med uv
 Install dependencies:
 ```powershell
@@ -135,7 +143,24 @@ uv sync
 
 This produces:
 - `dist\Sludre\Sludre.exe`
-- `dist\Sludre-win64.zip`
+- `dist\Sludre-win64-lite.zip`
+
+Optional local build with bundled model:
+```powershell
+.\tools\build_exe.ps1 -IncludeBundledModel
+```
+
+Optional with custom model source folder:
+```powershell
+.\tools\build_exe.ps1 -IncludeBundledModel -BundledModelSource "C:\path\to\model-folder"
+```
+
+This additionally produces:
+- `dist\Sludre-win64-with-model.zip`
+
+Build packaging note:
+- Runtime state files (`config.json`, `.env`, `wordlist.json`, `logs/`) are removed from bundle before zipping.
+- This ensures end users start with clean defaults (no leaked local paths or keys).
 
 ### CI build
 GitHub Actions workflow is included at:
@@ -143,6 +168,8 @@ GitHub Actions workflow is included at:
 `.github/workflows/windows-build.yml`
 
 It runs on `v*` tags and manual dispatch.
+It publishes both `lite` and `with-model` zip assets.
+`with-model` build expects model files to exist at `models/syvai--hviske-v2` in the workspace.
 
 ## Development
 Run tests:

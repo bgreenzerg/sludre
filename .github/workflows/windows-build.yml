@@ -9,6 +9,8 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,14 +32,81 @@ jobs:
       - name: Build executable
         run: uv run --group build pyinstaller --noconfirm --clean packaging/pyinstaller.spec
 
-      - name: Zip artifact
+      - name: Zip lite artifact
         shell: pwsh
         run: |
-          if (Test-Path dist/Sludre-win64.zip) { Remove-Item dist/Sludre-win64.zip -Force }
-          Compress-Archive -Path dist/Sludre/* -DestinationPath dist/Sludre-win64.zip -Force
+          foreach ($name in @(".env", "config.json", "wordlist.json", "logs", "models")) {
+            $path = Join-Path "dist/Sludre" $name
+            if (Test-Path $path) { Remove-Item $path -Recurse -Force }
+          }
+          if (Test-Path dist/Sludre-win64-lite.zip) { Remove-Item dist/Sludre-win64-lite.zip -Force }
+          @'
+          import sys
+          import zipfile
+          from pathlib import Path
 
-      - name: Upload artifact
+          src = Path("dist/Sludre").resolve()
+          dst = Path("dist/Sludre-win64-lite.zip").resolve()
+          with zipfile.ZipFile(dst, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as zf:
+              for path in src.rglob("*"):
+                  if path.is_file():
+                      zf.write(path, path.relative_to(src).as_posix())
+          print(f"Zip created: {dst}")
+          '@ | uv run python -
+
+      - name: Bundle local model
+        shell: pwsh
+        run: |
+          $source = Resolve-Path "models/syvai--hviske-v2" -ErrorAction SilentlyContinue
+          if (-not $source) {
+            throw "Bundled model source not found: models/syvai--hviske-v2. Add it locally before build."
+          }
+          $bundleRoot = (Resolve-Path "dist/Sludre").Path
+          $destRoot = Join-Path $bundleRoot "models"
+          New-Item -ItemType Directory -Path $destRoot -Force | Out-Null
+          $destPath = Join-Path $destRoot (Split-Path $source.Path -Leaf)
+          if (Test-Path $destPath) { Remove-Item $destPath -Recurse -Force }
+          Copy-Item -Path $source.Path -Destination $destRoot -Recurse -Force
+          Write-Host "Bundled local model from $($source.Path) to $destPath"
+
+      - name: Zip with-model artifact
+        shell: pwsh
+        run: |
+          foreach ($name in @(".env", "config.json", "wordlist.json", "logs")) {
+            $path = Join-Path "dist/Sludre" $name
+            if (Test-Path $path) { Remove-Item $path -Recurse -Force }
+          }
+          if (Test-Path dist/Sludre-win64-with-model.zip) { Remove-Item dist/Sludre-win64-with-model.zip -Force }
+          @'
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          src = Path("dist/Sludre").resolve()
+          dst = Path("dist/Sludre-win64-with-model.zip").resolve()
+          with zipfile.ZipFile(dst, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as zf:
+              for path in src.rglob("*"):
+                  if path.is_file():
+                      zf.write(path, path.relative_to(src).as_posix())
+          print(f"Zip created: {dst}")
+          '@ | uv run python -
+
+      - name: Upload lite artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Sludre-win64
-          path: dist/Sludre-win64.zip
+          name: Sludre-win64-lite
+          path: dist/Sludre-win64-lite.zip
+
+      - name: Upload with-model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sludre-win64-with-model
+          path: dist/Sludre-win64-with-model.zip
+
+      - name: Publish release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Sludre-win64-lite.zip
+            dist/Sludre-win64-with-model.zip
