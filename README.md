@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Sludre</h1>
-<p align="center">Windows desktop app for fast Danish speech-to-text on local CUDA, with optional LLM cleanup and direct cursor insertion.</p>
+<p align="center">Windows-app til hurtig dansk tale-til-tekst lokalt på CUDA, med valgfri LLM-oprydning og direkte indsættelse ved cursor.</p>
 
 <p align="center">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-0A2540">
@@ -12,177 +12,188 @@
   <img alt="UI" src="https://img.shields.io/badge/UI-PySide6-0E7490">
 </p>
 
-## What Sludre Does
-Sludre listens while you hold `Ctrl + Space`, transcribes locally with a Whisper-family model, optionally cleans the text with an LLM, and pastes the final result where your cursor is active.
+## Hvad Er Sludre?
+Sludre lytter, mens du holder `Ctrl + Space`, transskriberer lokalt med en Whisper-model, rydder teksten op med LLM hvis du ønsker det, og indsætter resultatet dér hvor markøren står.
 
-## Core Features
-- Global hold-to-talk hotkey: `Ctrl + Space`.
-- Local STT with `syvai/hviske-v2` on CUDA via `faster-whisper`.
-- Explicit model download button (no auto-download from Hugging Face).
-- Manual model path support.
-- One-time conversion from Transformers Whisper format to CTranslate2 when needed.
-  - Conversion dependencies (`transformers`, `torch`) are included in project/build deps.
-- Optional LLM cleanup pipeline before insert.
-- LLM providers: OpenAI-compatible endpoint and Mistral API.
-- Named system prompt presets (create/update/delete).
-- Custom wordlist with deterministic replacements and preferred term injection.
-- Output history in UI with per-entry `Kopier` button.
+## Funktioner
+- Global hold-to-talk hotkey: `Ctrl + Space`
+- Lokal STT med `syvai/hviske-v2` via `faster-whisper`
+- Eksplicit `Download model`-knap (ingen auto-download fra Hugging Face)
+- Mulighed for manuel modelsti
+- Engangskonvertering fra Transformers-format til CTranslate2 ved behov
+  - Konverteringsafhængigheder (`transformers`, `torch`) er inkluderet i projekt/build-afhængigheder
+- Valgfri LLM-oprydning inden indsættelse
+- LLM-providere: OpenAI-kompatibel endpoint og Mistral API
+- Prompt-presets (opret/opdatér/slet)
+- Ordliste med deterministic replacements og foretrukne termer
+- Output-historik i UI med `Kopier`-knap pr. række
 
-## Requirements
-- Windows 10 or 11
-- NVIDIA GPU with working CUDA drivers
-- Python 3.11+
-- `uv` installed (`https://docs.astral.sh/uv/`)
+## Systemkrav (Brugere)
+- Windows 10 eller 11
+- NVIDIA GPU med fungerende CUDA-drivere
 
-## Installation
-### 1) Download release (anbefalet)
-Hent zip-filen fra releases her:
-
-[https://github.com/bgreenzerg/sludre/releases](https://github.com/bgreenzerg/sludre/releases)
-
-Udpak zip-filen og kør `Sludre.exe`.
-
-Release assets:
-- `Sludre-win64-lite.zip`:
-  - Mindre download
-  - Kræver `HF key` + klik på `Download model` i appen
-- `Sludre-win64-with-model.zip`:
+## Kom Godt I Gang (Anbefalet)
+### 1) Vælg installer-type
+Nemmeste start (ingen HF-opsætning):
+- `Sludre-win64-with-model.zip`
+  - Direkte download: [SourceForge (with-model)](https://sourceforge.net/projects/sludre/files/Sludre-win64-with-model.zip/download)
   - Større download
-  - Model bundlet fra lokal mappe (`models\syvai--hviske-v2`) under build, så HF-opsætning normalt ikke er nødvendig
+  - Model er allerede med i pakken
 
-### 2) Kør fra source med uv
-Install dependencies:
+Mindre download (model hentes i appen):
+- `Sludre-win64-lite.zip`
+  - Hent fra: [GitHub Releases](https://github.com/bgreenzerg/sludre/releases)
+  - Kræver `HF key` + klik på `Download model`
+
+### 2) Installer
+1. Udpak zip-filen til en mappe, fx `C:\Sludre`.
+2. Kør `Sludre.exe`.
+
+### 3) Standard placering af modeller (installeret version)
+Når du kører den installerede `Sludre.exe`, ligger standardstier relativt til samme mappe som exe'en:
+- `models`-mappe: `.\models\`
+- Eksempel hvis appen ligger i `C:\Sludre`:
+  - Modelmappe: `C:\Sludre\models\`
+  - Standard modelsti: `C:\Sludre\models\syvai--hviske-v2`
+
+### 4) Første opsætning i appen
+1. Åbn `Indstillinger`.
+2. Hvis du bruger `with-model`:
+   - Appen er normalt klar med det samme.
+3. Hvis du bruger `lite`:
+   - Indsæt Hugging Face key i `HF key`.
+   - Klik `Download model`.
+   - Vent til status er `Ready`.
+
+Du kan følge download i `System log`:
+- download-plan (`files` + total size)
+- fremdrift (`X%` + bytes)
+- detaljerede fejl (CLI/SDK fallback)
+
+### 5) Brug appen
+- Hold `Ctrl + Space` for at optage
+- Slip for at transskribere og indsætte tekst
+
+## Runtime-filer og stier
+Sludre bruger runtime-roden:
+- Source-kørsel: repository-roden
+- Exe-kørsel: mappen hvor `Sludre.exe` ligger
+
+Følgende filer ligger i runtime-roden:
+- `.\.env`
+- `.\config.json`
+- `.\models\`
+- `.\logs\sludre.log`
+- `.\wordlist.json`
+
+## Modelopsætning
+Standard modelmål:
+
+`.\models\syvai--hviske-v2`
+
+Downloadstrategi når du klikker `Download model`:
+1. Hugging Face CLI (`hf` / `huggingface-cli`)
+2. Python SDK fallback (`huggingface_hub.snapshot_download`)
+
+Hvis modellen er i Transformers-format (`*.safetensors`), laver Sludre automatisk engangskonvertering til:
+
+`.\models\syvai--hviske-v2\ctranslate2`
+
+Manuel modelsti:
+- Kan sættes i `Indstillinger`
+- Hvis mappen ikke findes, oprettes den automatisk
+- Hvis mappen findes men ikke har gyldig model endnu, bruges den som download-target
+
+## Nøgler Og Hemmeligheder
+API-nøgler gemmes i lokal `.env`:
+- `HF_TOKEN`
+- `LLM_API_KEY`
+
+Plaintext nøgler gemmes ikke i `config.json`.
+
+## Fejlsøgning
+### `Download model` gør ingenting
+- Tjek at `HF key` er udfyldt
+- Tjek `System log` for model/download-linjer
+
+### Fejl med manglende `model.bin`
+- Den valgte modelmappe indeholder ikke en komplet model
+- Klik `Download model` og lad den køre færdig
+- Ryd evt. ufuldstændig modelmappe og prøv igen
+
+### Konverteringsfejl med manglende `transformers` / `torch`
+Kør:
 ```powershell
 uv sync
 ```
 
-Start the app:
+### Hugging Face auth/netværksfejl
+- Verificér token og repo-adgang på Hugging Face
+- Se `System log` for CLI stderr/fallback-detaljer
+
+## Til Udviklere: Kør Fra Source (uv)
+Krav:
+- Python 3.11+
+- `uv` installeret (`https://docs.astral.sh/uv/`)
+
+Installér dependencies:
+```powershell
+uv sync
+```
+
+Start appen:
 ```powershell
 uv run -m src.app
 ```
 
-### 3) First-time model setup in the app
-1. Open `Indstillinger`.
-2. Enter your Hugging Face key in the `HF key` field.
-3. Optional: set `Manual model path` if you want a custom model folder.
-4. Click `Download model`.
-5. Wait for status `Ready`.
-
-When downloading, follow progress in `System log`:
-- download plan (`files` + total size),
-- progress updates (`X%` + bytes),
-- detailed CLI/SDK fallback errors if something fails.
-
-### 4) Use it
-- Hold `Ctrl + Space` to record.
-- Release to transcribe and insert text.
-
-## Runtime Files and Paths
-Sludre resolves paths from the active runtime root:
-- Source run: repository root
-- Frozen `.exe`: folder containing `Sludre.exe`
-
-This means these files are visible next to your source tree or exe bundle:
-- secrets: `.\.env`
-- config: `.\config.json`
-- models: `.\models\`
-- logs: `.\logs\sludre.log`
-- wordlist: `.\wordlist.json`
-
-## Model Setup
-Default model target:
-
-`.\models\syvai--hviske-v2`
-
-Download strategy after clicking `Download model` in settings:
-1. Hugging Face CLI (`hf` / `huggingface-cli`)
-2. Python SDK fallback (`huggingface_hub.snapshot_download`)
-
-If the model is Transformers format (`*.safetensors`), Sludre auto-converts once to:
-
-`.\models\syvai--hviske-v2\ctranslate2`
-
-Manual model behavior:
-- `Manual model path` can be configured in `Indstillinger`.
-- If the folder does not exist, Sludre creates it.
-- If the folder exists but has no valid model yet, `Download model` will download into that folder.
-
-## Secret Storage
-API keys are stored in project-local `.env`:
-- `HF_TOKEN`
-- `LLM_API_KEY`
-
-Plaintext secrets are not persisted in `config.json`.
-
-## Troubleshooting
-### Download button does nothing
-- Check `HF key` is filled in.
-- Check `System log` for lines starting with model/download events.
-
-### Model load fails with missing `model.bin`
-- This means the selected manual path does not contain a complete model yet.
-- Click `Download model` and let it finish.
-- If needed, clear the incomplete model folder and retry.
-
-### Conversion error about missing `transformers` / `torch`
-- Run:
-```powershell
-uv sync
-```
-- Both packages are part of project dependencies and build dependencies.
-
-### Hugging Face auth/network problems
-- Verify token validity and repo access on Hugging Face.
-- Check `System log` for CLI stderr and fallback details.
-
-## Build Windows `.exe` (PyInstaller)
-### Local build
+## Byg Windows `.exe` (PyInstaller)
+### Lokal build
 ```powershell
 .\tools\build_exe.ps1
 ```
 
-This produces:
+Dette producerer:
 - `dist\Sludre\Sludre.exe`
 - `dist\Sludre-win64-lite.zip`
 
-Optional local build with bundled model:
+Valgfri build med indbygget model:
 ```powershell
 .\tools\build_exe.ps1 -IncludeBundledModel
 ```
 
-Optional with custom model source folder:
+Valgfri build med custom modelkilde:
 ```powershell
 .\tools\build_exe.ps1 -IncludeBundledModel -BundledModelSource "C:\path\to\model-folder"
 ```
 
-This additionally produces:
+Dette producerer desuden:
 - `dist\Sludre-win64-with-model.zip`
 
-Build packaging note:
-- Runtime state files (`config.json`, `.env`, `wordlist.json`, `logs/`) are removed from bundle before zipping.
-- This ensures end users start with clean defaults (no leaked local paths or keys).
+Build-note:
+- Runtime-state (`config.json`, `.env`, `wordlist.json`, `logs/`) fjernes fra bundle før zip
+- Det sikrer en ren pakke uden lokale stier eller nøgler
 
-### CI build
-GitHub Actions workflow is included at:
+### CI-build
+Workflow:
 
 `.github/workflows/windows-build.yml`
 
-It runs on `v*` tags and manual dispatch.
-It publishes both `lite` and `with-model` zip assets.
-`with-model` build expects model files to exist at `models/syvai--hviske-v2` in the workspace.
+Kører på `v*` tags og manuel dispatch.
+Publicerer både `lite` og `with-model`.
+`with-model` forventer model i `models/syvai--hviske-v2` i workspace.
 
-## Development
-Run tests:
+## Udvikling
+Kør tests:
 ```powershell
 uv run python -m unittest discover -s tests -p "test_*.py"
 ```
 
-Compile check:
+Compile-check:
 ```powershell
 uv run python -m compileall src
 ```
 
-## Project Structure
+## Projektstruktur
 ```text
 .github/workflows/windows-build.yml
 packaging/pyinstaller.spec
