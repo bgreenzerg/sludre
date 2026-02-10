@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 project_root = Path(SPECPATH).parent
@@ -12,6 +12,8 @@ for name in ("sludre_logo.png", "sludre_background_stick.png", "background.jpg")
     path = assets_root / name
     if path.exists():
         datas.append((str(path), "assets"))
+# Include faster-whisper runtime assets (Silero VAD ONNX model, etc.).
+datas += collect_data_files("faster_whisper", includes=["assets/*"])
 
 hiddenimports = []
 hiddenimports += collect_submodules("faster_whisper")
