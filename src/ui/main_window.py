@@ -202,7 +202,7 @@ class MainWindow(QMainWindow):
         self.audio_capture = AudioCapture(sample_rate=self.config.sample_rate, channels=self.config.channels, max_record_seconds=self.config.max_record_seconds, silence_trim=self.config.silence_trim)
         self.text_inserter = TextInserter(restore_clipboard=self.config.restore_clipboard)
         self.wordlist_store = WordlistStore(Path(self.config.wordlist_path))
-        self.llm_refiner = LlmRefiner()
+        self.llm_refiner = LlmRefiner(log_callback=self._ui_log)
         self.post_processor = TranscriptionPostProcessor(self.wordlist_store, self.llm_refiner)
         self.model_manager = self._make_model_manager(self.config)
         self.transcriber = Transcriber(model_path=self._initial_model_path(self.config), device="cuda")
@@ -305,9 +305,10 @@ class MainWindow(QMainWindow):
         self.hf_token_input = QLineEdit(self.config.hf_token); self.hf_token_input.setEchoMode(QLineEdit.EchoMode.Password); self.hf_token_input.setPlaceholderText("Optional Hugging Face token"); self.hf_token_input.textChanged.connect(self._update_model_controls); s.addWidget(self.hf_token_input)
         self.download_model_btn = QPushButton("Download model"); self.download_model_btn.clicked.connect(self._on_download_model_clicked); s.addWidget(self.download_model_btn)
         self.llm_enabled = QCheckBox("Enable LLM cleanup"); self.llm_enabled.setChecked(self.config.llm_enabled); s.addWidget(self.llm_enabled)
-        llm = QFormLayout(); self.provider = QComboBox(); self.provider.addItem("OpenAI-compatible", "openai_compatible"); self.provider.addItem("Mistral API", "mistral_api"); self.provider.currentIndexChanged.connect(self._on_provider_changed); self._set_combo(self.provider, self.config.llm_provider)
+        llm = QFormLayout(); self.provider = QComboBox(); self.provider.addItem("OpenAI-compatible", "openai_compatible"); self.provider.addItem("Mistral API", "mistral_api")
         self.base_url = QLineEdit(self.config.llm_base_url); self.mistral_base = QLineEdit(self.config.mistral_base_url); self.api_key = QLineEdit(self.config.llm_api_key); self.api_key.setEchoMode(QLineEdit.EchoMode.Password); self.model_name = QLineEdit(self.config.llm_model)
         self.mistral_preset = QComboBox(); [self.mistral_preset.addItem(m, m) for m in MISTRAL_MODEL_PRESETS]; self._set_combo(self.mistral_preset, self.config.mistral_model_preset)
+        self.provider.currentIndexChanged.connect(self._on_provider_changed); self._set_combo(self.provider, self.config.llm_provider)
         self.timeout = QSpinBox(); self.timeout.setRange(1, 60); self.timeout.setValue(self.config.llm_timeout_seconds); self.temperature = QDoubleSpinBox(); self.temperature.setRange(0.0, 2.0); self.temperature.setDecimals(2); self.temperature.setValue(self.config.llm_temperature)
         llm.addRow("Provider:", self.provider); llm.addRow("OpenAI base URL:", self.base_url); llm.addRow("Mistral base URL:", self.mistral_base); llm.addRow("API key:", self.api_key); llm.addRow("Mistral preset:", self.mistral_preset); llm.addRow("Custom model:", self.model_name); llm.addRow("Timeout (s):", self.timeout); llm.addRow("Temperature:", self.temperature); s.addLayout(llm)
         s.addWidget(QLabel("System prompt presets:"))
@@ -536,6 +537,8 @@ class MainWindow(QMainWindow):
         self._start_model_init(allow_download=False)
 
     def _on_provider_changed(self) -> None:
+        if not all(hasattr(self, name) for name in ("base_url", "mistral_base", "mistral_preset")):
+            return
         is_mistral = str(self.provider.currentData()) == "mistral_api"
         self.base_url.setEnabled(not is_mistral); self.mistral_base.setEnabled(is_mistral); self.mistral_preset.setEnabled(is_mistral)
 

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,8 +37,20 @@ class LlmRefineResult:
 
 
 class LlmRefiner:
-    def __init__(self) -> None:
+    def __init__(self, log_callback: Callable[[str], None] | None = None) -> None:
         self.logger = logging.getLogger("sludre.llm_refiner")
+        self.log_callback = log_callback
+
+    def _emit_ui_log(self, message: str) -> None:
+        if self.log_callback:
+            self.log_callback(message)
+
+    @staticmethod
+    def _preview_text(text: str, max_chars: int = 220) -> str:
+        normalized = " ".join(text.split())
+        if len(normalized) <= max_chars:
+            return normalized
+        return normalized[: max_chars - 3] + "..."
 
     def refine(
         self,
@@ -73,6 +86,13 @@ class LlmRefiner:
             endpoint,
             config.llm_timeout_seconds,
         )
+        self._emit_ui_log(
+            f"LLM request -> provider={config.llm_provider} model={model} endpoint={endpoint} "
+            f"timeout={config.llm_timeout_seconds}s input_chars={len(text)} preferred_terms={len(preferred_terms)}"
+        )
+        self._emit_ui_log(
+            f"LLM input preview: {self._preview_text(text)}"
+        )
         started = time.perf_counter()
         try:
             response = _urlopen(
@@ -92,6 +112,12 @@ class LlmRefiner:
             text_out = self._extract_text_from_response(raw)
             if not text_out.strip():
                 raise LlmRefineError("LLM returned empty content.")
+            self._emit_ui_log(
+                f"LLM response <- provider={config.llm_provider} model={model} status={status} latency={latency_ms}ms output_chars={len(text_out.strip())}"
+            )
+            self._emit_ui_log(
+                f"LLM output preview: {self._preview_text(text_out)}"
+            )
             return LlmRefineResult(
                 text=text_out.strip(),
                 latency_ms=latency_ms,
@@ -99,8 +125,14 @@ class LlmRefiner:
                 model=model,
             )
         except LlmRefineError:
+            self._emit_ui_log(
+                f"LLM request failed (handled): provider={config.llm_provider} model={model} endpoint={endpoint}"
+            )
             raise
         except Exception as exc:
+            self._emit_ui_log(
+                f"LLM request failed: provider={config.llm_provider} model={model} endpoint={endpoint} error={exc}"
+            )
             raise LlmRefineError(str(exc)) from exc
 
     @staticmethod
