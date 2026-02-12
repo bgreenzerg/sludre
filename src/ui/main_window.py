@@ -8,7 +8,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QIcon, QLinearGradient, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -97,11 +97,93 @@ class StyledBackgroundWidget(QWidget):
         painter.drawEllipse(-160, int(rect.height() * 0.54), 450, 450)
 
 
+class ListeningOverlay(QWidget):
+    def __init__(self, icon_path: Path | None = None, parent: QWidget | None = None) -> None:
+        flags = (
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        super().__init__(parent, flags)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        card = QWidget(self)
+        card.setObjectName("listeningOverlayCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 12, 14, 12)
+        card_layout.setSpacing(8)
+
+        self.icon_label = QLabel(card)
+        self.icon_label.setObjectName("listeningOverlayIcon")
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_label.setMinimumSize(56, 56)
+        self.icon_label.setMaximumSize(56, 56)
+        if icon_path and icon_path.exists():
+            pix = QPixmap(str(icon_path))
+            if not pix.isNull():
+                self.icon_label.setPixmap(
+                    pix.scaled(
+                        52,
+                        52,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+            else:
+                self.icon_label.setText("S")
+        else:
+            self.icon_label.setText("S")
+
+        self.text_label = QLabel("Lytter...", card)
+        self.text_label.setObjectName("listeningOverlayText")
+        self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        card_layout.addWidget(self.icon_label, 0, Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(self.text_label, 0, Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(card)
+
+        self.setStyleSheet(
+            """
+            #listeningOverlayCard {
+                background: rgba(6, 16, 28, 224);
+                border: 1px solid rgba(173, 201, 233, 110);
+                border-radius: 14px;
+            }
+            #listeningOverlayIcon {
+                border-radius: 10px;
+                background: rgba(10, 23, 40, 210);
+                border: 1px solid rgba(173, 201, 233, 100);
+                font-size: 28px;
+                font-weight: 700;
+                color: #ECF2FF;
+            }
+            #listeningOverlayText {
+                color: #ECF2FF;
+                font-size: 13px;
+                font-weight: 650;
+                letter-spacing: 0.3px;
+            }
+            """
+        )
+        self.adjustSize()
+
+    def set_text(self, text: str) -> None:
+        self.text_label.setText(text)
+        self.adjustSize()
+
+
 class UiBridge(QObject):
     status_changed = Signal(str)
     log_message = Signal(str)
     ready_changed = Signal(bool)
     model_init_finished = Signal()
+    listening_overlay_state_changed = Signal(str)
     postprocess_ready = Signal(object)
     postprocess_failed = Signal(str)
 
@@ -183,12 +265,14 @@ class MainWindow(QMainWindow):
         self._transcribing = False
         self._model_thread: threading.Thread | None = None
         self._model_init_in_progress = False
+        self._log_visible = True
 
         self.bridge = UiBridge()
         self.bridge.status_changed.connect(self._set_status_label)
         self.bridge.log_message.connect(self._append_log)
         self.bridge.ready_changed.connect(self._set_ready_state)
         self.bridge.model_init_finished.connect(self._on_model_init_finished)
+        self.bridge.listening_overlay_state_changed.connect(self._set_listening_overlay_state)
         self.bridge.postprocess_ready.connect(self._on_postprocess_ready)
         self.bridge.postprocess_failed.connect(self._on_postprocess_failed)
 
@@ -213,6 +297,8 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(self._logo_path)))
         self._build_ui()
         self._apply_theme()
+        self.listening_overlay = ListeningOverlay(self._logo_path)
+        self.listening_overlay.hide()
         self._ui_log(f"Secrets file: {self.secrets_store.path}")
         if self._secrets_migrated:
             self._ui_log("Migrated legacy keys from config.json to project .env")
@@ -298,7 +384,15 @@ class MainWindow(QMainWindow):
         self.output_table.setWordWrap(True)
         self.output_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.output_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        main_layout.addWidget(QLabel("System log:")); self.log_output = QTextEdit(); self.log_output.setReadOnly(True); main_layout.addWidget(self.log_output, 1)
+        log_header = QHBoxLayout()
+        self.log_label = QLabel("System log:")
+        self.toggle_log_btn = QPushButton("Skjul log")
+        self.toggle_log_btn.clicked.connect(self._toggle_log_visibility)
+        log_header.addWidget(self.log_label)
+        log_header.addStretch(1)
+        log_header.addWidget(self.toggle_log_btn)
+        main_layout.addLayout(log_header)
+        self.log_output = QTextEdit(); self.log_output.setReadOnly(True); main_layout.addWidget(self.log_output, 1)
 
         s = QVBoxLayout(settings)
         model_row = QHBoxLayout(); self.manual_model_input = QLineEdit(self.config.manual_model_path); browse = QPushButton("Browse..."); browse.clicked.connect(self._browse_model_path); model_row.addWidget(self.manual_model_input); model_row.addWidget(browse); s.addLayout(model_row)
@@ -648,17 +742,18 @@ class MainWindow(QMainWindow):
         with self._state_lock:
             if not self._ready or self._transcribing or self._listening: return
             self._listening = True
-        try: self.audio_capture.start(); self.bridge.status_changed.emit("Status: Listening...")
+        try: self.audio_capture.start(); self.bridge.status_changed.emit("Status: Listening..."); self.bridge.listening_overlay_state_changed.emit("listening")
         except Exception as exc:
             with self._state_lock: self._listening = False
-            self.bridge.status_changed.emit("Status: Audio error"); self._ui_log(f"Audio start failed: {exc}", level=logging.ERROR)
+            self.bridge.status_changed.emit("Status: Audio error"); self.bridge.listening_overlay_state_changed.emit("hidden"); self._ui_log(f"Audio start failed: {exc}", level=logging.ERROR)
 
     def _on_listen_stop(self) -> None:
         with self._state_lock:
             if not self._listening: return
             self._listening = False
         audio = self.audio_capture.stop()
-        if audio.size == 0: self.bridge.status_changed.emit("Status: Ready"); return
+        if audio.size == 0: self.bridge.status_changed.emit("Status: Ready"); self.bridge.listening_overlay_state_changed.emit("hidden"); return
+        self.bridge.listening_overlay_state_changed.emit("transcribing")
         self._start_transcription(audio)
 
     def _start_transcription(self, audio) -> None:
@@ -666,6 +761,7 @@ class MainWindow(QMainWindow):
             if self._transcribing: return
             self._transcribing = True
         self.bridge.status_changed.emit("Status: Transcribing...")
+        self.bridge.listening_overlay_state_changed.emit("transcribing")
         def worker() -> None:
             try:
                 with self._state_lock: t = self.transcriber
@@ -704,13 +800,48 @@ class MainWindow(QMainWindow):
 
     def _finish_cycle(self) -> None:
         with self._state_lock: self._transcribing = False
+        self.bridge.listening_overlay_state_changed.emit("hidden")
         if self._ready: self.bridge.status_changed.emit("Status: Ready")
 
     def _set_status_label(self, text: str) -> None:
         self.status_label.setText(text)
 
+    def _position_listening_overlay(self) -> None:
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            rect = self.geometry()
+        else:
+            rect = screen.availableGeometry()
+        self.listening_overlay.adjustSize()
+        width = self.listening_overlay.width()
+        height = self.listening_overlay.height()
+        x = rect.x() + (rect.width() - width) // 2
+        target_y = rect.y() + int(rect.height() * 0.75) - (height // 2)
+        margin = 10
+        min_x = rect.x() + margin
+        max_x = rect.x() + rect.width() - width - margin
+        min_y = rect.y() + margin
+        max_y = rect.y() + rect.height() - height - margin
+        x = max(min_x, min(x, max_x))
+        y = max(min_y, min(target_y, max_y))
+        self.listening_overlay.move(x, y)
+
+    def _set_listening_overlay_state(self, state: str) -> None:
+        if state == "hidden":
+            self.listening_overlay.hide()
+            return
+        text = "Lytter..." if state == "listening" else "Transskriberer..."
+        self.listening_overlay.set_text(text)
+        self._position_listening_overlay()
+        self.listening_overlay.show()
+
     def _append_log(self, text: str) -> None:
         self.log_output.append(f"[{time.strftime('%H:%M:%S')}] {text}")
+
+    def _toggle_log_visibility(self) -> None:
+        self._log_visible = not self._log_visible
+        self.log_output.setVisible(self._log_visible)
+        self.toggle_log_btn.setText("Skjul log" if self._log_visible else "Vis log")
 
     def _ui_log(self, text: str, level: int = logging.INFO) -> None:
         self.logger.log(level, text); self.bridge.log_message.emit(text)
@@ -722,4 +853,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.hotkey.unregister()
         if self.audio_capture.is_recording(): self.audio_capture.stop()
+        self.listening_overlay.hide()
+        self.listening_overlay.close()
         super().closeEvent(event)
